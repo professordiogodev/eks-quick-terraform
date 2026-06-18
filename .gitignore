@@ -1,0 +1,13 @@
+.terraform
+terraform.tfstate
+terraform.tfstate.backup
+.terraformrc
+terraform.rc
+*.tfvars
+*.tfvars.json
+*.tfvars.yaml
+*.tfvars.yml
+*.tfvars.tfvars
+*.tfvars.tfvars.json
+*.tfvars.tfvars.yaml
+*.tfvars.tfvars.yml
