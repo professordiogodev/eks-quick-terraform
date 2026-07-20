@@ -7,7 +7,7 @@ if [ -z "$NAME" ]; then
   echo "Usage: ./up.sh <your-name>   (e.g. ./up.sh richard)"
   exit 1
 fi
-REGION="${AWS_REGION:-eu-central-1}"
+REGION="${AWS_REGION:-us-east-1}"
 
 echo ">> Initialising Terraform..."
 terraform init -input=false
