@@ -47,4 +47,28 @@ module "eks" {
       desired_size   = var.desired_nodes
     }
   }
+
+  # EBS CSI driver needs its own IAM identity (IRSA) — the node role alone
+  # doesn't have EBS permissions, which is what caused CREATE_FAILED before.
+  cluster_addons = {
+    aws-ebs-csi-driver = {
+      service_account_role_arn = module.irsa_ebs_csi.iam_role_arn
+    }
+  }
+}
+
+# --- IRSA role for the EBS CSI driver addon ---
+module "irsa_ebs_csi" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.39"
+
+  role_name             = "AmazonEKS_EBS_CSI_DriverRole_${var.student_name}"
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+    }
+  }
 }
