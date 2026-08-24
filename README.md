@@ -12,7 +12,7 @@ chmod +x up.sh down.sh
 
 2. Turn on the cluster (has 2 t3.medium machines currently):
 ```
-./up.sh
+./up.sh <your-name>
 ```
 
 3. When you're done, turn it off!
