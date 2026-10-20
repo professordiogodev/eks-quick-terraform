@@ -1,31 +1,28 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-# Disable the AWS CLI's pager — otherwise JSON output from commands open in `less` and blocks the script until you hit q.
-export AWS_PAGER=""
-
+# Create (or update) your EKS cluster.
 # Usage: ./up.sh <your-name>      e.g.  ./up.sh richard
+source "$(dirname "${BASH_SOURCE[0]}")/scripts/common.sh"
+
 NAME="${1:-}"
-if [ -z "$NAME" ]; then
-  echo "Usage: ./up.sh <your-name>   (e.g. ./up.sh richard)"
-  exit 1
-fi
-REGION="${AWS_REGION:-us-east-1}"
+validate_name up.sh "$NAME"
+CLUSTER_NAME="eks-${NAME}"
 
-echo ">> Initialising Terraform..."
-terraform init -input=false
+require_tools terraform aws kubectl
+require_aws_credentials
+tf_init
+select_workspace "$NAME" create
+TF_VARS=(-var "student_name=${NAME}" -var "region=${REGION}")
 
-echo ">> Building your EKS cluster (+ EBS CSI driver). This takes ~15 minutes — go get a coffee."
-terraform apply -auto-approve -var="student_name=${NAME}"
+log "Building ${CLUSTER_NAME}. This takes about 15 minutes, go get a coffee."
+terraform apply -input=false -auto-approve "${TF_VARS[@]}"
 
-echo ">> Connecting kubectl to your cluster..."
-aws eks update-kubeconfig --name "eks-${NAME}" --region "${REGION}"
+log "Connecting kubectl to your cluster..."
+aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION" --alias "$CLUSTER_NAME" >/dev/null
 
-echo ">> Installing Metrics Server..."
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+log "Waiting for nodes to be Ready..."
+kubectl wait --for=condition=Ready nodes --all --timeout=300s >/dev/null
 
-echo ">> Waiting for Metrics Server to become ready..."
-kubectl rollout status deployment metrics-server -n kube-system --timeout=120s || true
-
-echo ">> Done! Your nodes:"
-kubectl get nodes
+log "Done! Your nodes:"
+kubectl get nodes -o wide
+echo
+log "Remember to run ./down.sh ${NAME} when you're finished; the cluster costs money every hour it's up."
