@@ -1,7 +1,5 @@
 # eks-quick-terraform
 
-[![CI](https://github.com/professordiogodev/eks-quick-terraform/actions/workflows/ci.yml/badge.svg)](https://github.com/professordiogodev/eks-quick-terraform/actions/workflows/ci.yml)
-
 Spin an Amazon EKS cluster up for a class or lab session, then tear it down again, with one command each.
 It's built on the community [`terraform-aws-modules`](https://github.com/terraform-aws-modules) and set up for **low cost and quick turnaround**, not production.
 
@@ -156,7 +154,7 @@ aws ec2 describe-volumes --filters Name=status,Values=available --query 'Volumes
 
 ## Contributing
 
-CI runs `terraform fmt`, `terraform validate`, [TFLint](https://github.com/terraform-linters/tflint) and [ShellCheck](https://www.shellcheck.net/) on every push and pull request. Run the same checks locally before opening a PR:
+Before opening a PR, run `terraform fmt`, `terraform validate`, [TFLint](https://github.com/terraform-linters/tflint) and [ShellCheck](https://www.shellcheck.net/):
 
 ```bash
 terraform fmt -recursive
