@@ -81,13 +81,11 @@ Then it destroys the cluster and removes the VPC endpoint and security group tha
 The scripts are a convenience; everything is plain Terraform.
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars   # set student_name, etc.
 terraform init
-terraform plan
-terraform apply
+terraform apply -var="student_name=richard"
 $(terraform output -raw connect_command)
 # ...
-terraform destroy   # delete LoadBalancer Services and PVCs first (see down.sh)
+terraform destroy -var="student_name=richard"   # do down.sh's cleanup steps first, or it can get stuck
 ```
 
 ### Inputs
@@ -154,11 +152,10 @@ aws ec2 describe-volumes --filters Name=status,Values=available --query 'Volumes
 
 ## Contributing
 
-Before opening a PR, run `terraform fmt`, `terraform validate`, [TFLint](https://github.com/terraform-linters/tflint) and [ShellCheck](https://www.shellcheck.net/):
+Before opening a PR, run `terraform fmt`, `terraform validate` and [ShellCheck](https://www.shellcheck.net/):
 
 ```bash
 terraform fmt -recursive
 terraform init -backend=false && terraform validate
-tflint --init && tflint
 shellcheck -x up.sh down.sh scripts/common.sh
 ```
