@@ -1,5 +1,7 @@
 # eks-quick-terraform
 
+[![CI](https://github.com/professordiogodev/eks-quick-terraform/actions/workflows/ci.yml/badge.svg)](https://github.com/professordiogodev/eks-quick-terraform/actions/workflows/ci.yml)
+
 Spin an Amazon EKS cluster up for a class or lab session, then tear it down again, with one command each.
 It's built on the community [`terraform-aws-modules`](https://github.com/terraform-aws-modules) and set up for **low cost and quick turnaround**, not production.
 
@@ -11,38 +13,40 @@ It's built on the community [`terraform-aws-modules`](https://github.com/terrafo
 ## What gets created
 
 ```
-VPC 10.0.0.0/16  (2 availability zones: us-east-1a, us-east-1b)
+VPC 10.0.0.0/16  (2 availability zones)
 ├── public subnets   10.0.101.0/24, 10.0.102.0/24  ── Internet Gateway, NAT Gateway, public load balancers
 └── private subnets  10.0.1.0/24,   10.0.2.0/24    ── worker nodes, internal load balancers
                                                        │
-EKS control plane (Kubernetes 1.33, public API endpoint)
-└── managed node group: 2 × t3.medium (scales 1 to 3)
+EKS control plane (Kubernetes 1.36, public API endpoint)
+└── managed node group: 2 × t3.medium, Amazon Linux 2023 (scales 1 to 3)
 
-Extras: EBS CSI driver add-on (with its own IAM role via IRSA), Metrics Server
+EKS add-ons: vpc-cni, kube-proxy, coredns, eks-pod-identity-agent,
+             aws-ebs-csi-driver (IAM via EKS Pod Identity), metrics-server
 ```
 
-Every resource is named after the student (`eks-<name>`, `vpc-<name>`), so several students can share one AWS account without clashing.
+Every resource is named and tagged after the student (`eks-<name>`, `vpc-<name>`, `Owner=<name>`), so many students can share one AWS account without clashing.
 
 ## Cost
 
 Approximate on-demand prices in `us-east-1` with the defaults:
 
-| Resource            | Per hour |
-| ------------------- | -------- |
-| EKS control plane   | $0.10    |
-| 2 × t3.medium nodes | $0.083   |
-| NAT Gateway         | $0.045 + data processed |
-| **Total**           | **≈ $0.23/h (≈ $5.50/day)** |
+| Resource               | Per hour    |
+| ---------------------- | ----------- |
+| EKS control plane      | $0.10       |
+| 2 × t3.medium nodes    | $0.083      |
+| NAT Gateway            | $0.045 + data processed |
+| **Total**              | **≈ $0.23/h (≈ $5.50/day)** |
 
 **Run `./down.sh <your-name>` when you finish.** A cluster forgotten over a weekend costs about $15.
+Set `capacity_type = "SPOT"` to cut the node cost by roughly two thirds.
 
 ## Prerequisites
 
-| Tool | Check |
-| --- | --- |
-| [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.5 | `terraform version` |
-| [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) | `aws --version` |
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | `kubectl version --client` |
+| Tool | Version | Check |
+| --- | --- | --- |
+| [Terraform](https://developer.hashicorp.com/terraform/install) | ≥ 1.5.7 | `terraform version` |
+| [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) | 2.x | `aws --version` |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | within one minor version of the cluster | `kubectl version --client` |
 
 You also need AWS credentials that can create VPC, EKS, EC2 and IAM resources (check with `aws sts get-caller-identity`).
 The scripts are Bash; on Windows, run them from [WSL](https://learn.microsoft.com/windows/wsl/install).
@@ -52,66 +56,106 @@ The scripts are Bash; on Windows, run them from [WSL](https://learn.microsoft.co
 ```bash
 git clone https://github.com/professordiogodev/eks-quick-terraform.git
 cd eks-quick-terraform
-chmod +x up.sh down.sh fix-ebs-csi.sh
 
 ./up.sh <your-name>      # e.g. ./up.sh richard
 kubectl get nodes
-kubectl top nodes        # Metrics Server is installed
+kubectl top nodes        # metrics-server is installed
 
 ./down.sh <your-name>    # same name you used for up.sh
 ```
 
-Use a short, lowercase name with no spaces. It becomes part of every resource name.
+`<your-name>` must be 2 to 21 characters of lowercase letters, digits or hyphens, starting with a letter.
+To use a region other than `us-east-1`, export it first: `export AWS_REGION=eu-west-1`.
 
 ### What the scripts do
 
-| Script | What it does |
-| --- | --- |
-| `up.sh <name>` | Runs `terraform apply`, points `kubectl` at the new cluster, installs Metrics Server and lists the nodes. |
-| `down.sh <name>` | Deletes any `type: LoadBalancer` Services first (Kubernetes creates those load balancers outside Terraform, and they would block the VPC from being deleted), then runs `terraform destroy`. |
-| `fix-ebs-csi.sh <name>` | Repairs an EBS CSI driver add-on stuck in `CREATE_FAILED` by (re)creating its IAM role and restarting the controller. Only needed for clusters created before the IRSA fix in `main.tf`. |
+**`up.sh`** checks your tools and AWS credentials, selects a Terraform workspace named after you (so each name gets its own state), runs `terraform apply`, configures `kubectl` with a context called `eks-<name>`, and waits for the nodes to be `Ready`.
 
-## Configuration
+**`down.sh`** first deletes the AWS resources Kubernetes created behind Terraform's back:
 
-Override any variable with `-var` when running Terraform directly, or in a `terraform.tfvars` file (git-ignored):
+- load balancers from `type: LoadBalancer` Services and Ingresses, which would otherwise block the VPC from being deleted
+- EBS volumes from PersistentVolumeClaims, which would otherwise keep costing money
 
-| Variable | Description | Default |
+Then it runs `terraform destroy`, removes your workspace and deletes the `kubectl` context.
+
+## Using Terraform directly
+
+The scripts are a convenience; everything is plain Terraform.
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # set student_name, etc.
+terraform init
+terraform plan
+terraform apply
+$(terraform output -raw connect_command)
+# ...
+terraform destroy   # delete LoadBalancer Services and PVCs first (see down.sh)
+```
+
+### Inputs
+
+| Name | Description | Default |
 | --- | --- | --- |
-| `student_name` | Your name, used in every resource name. **Required.** | |
+| `student_name` | Your name, used to name and tag every resource. **Required.** | |
 | `region` | AWS region. | `us-east-1` |
-| `k8s_version` | EKS Kubernetes version. Keep it in [standard support](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html); extended support costs 6x more. | `1.33` |
+| `kubernetes_version` | EKS Kubernetes version. Keep it in [standard support](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html); extended support costs 6x more. | `1.36` |
+| `vpc_cidr` | VPC CIDR block. | `10.0.0.0/16` |
+| `endpoint_public_access_cidrs` | CIDRs allowed to reach the Kubernetes API. | `["0.0.0.0/0"]` |
+| `instance_types` | Worker node instance types. | `["t3.medium"]` |
+| `capacity_type` | `ON_DEMAND` or `SPOT`. | `ON_DEMAND` |
 | `desired_nodes` / `min_nodes` / `max_nodes` | Node group size. | `2` / `1` / `3` |
+| `tags` | Extra tags for every resource. | `{}` |
 
-Outputs: `cluster_name`, and `connect_command` (the command that configures `kubectl`).
+### Outputs
+
+| Name | Description |
+| --- | --- |
+| `cluster_name` | EKS cluster name. |
+| `cluster_endpoint` | Kubernetes API endpoint. |
+| `kubernetes_version` | Control plane version. |
+| `region` | AWS region. |
+| `vpc_id` | VPC ID. |
+| `connect_command` | Command that configures `kubectl` for the cluster. |
 
 ## Design decisions
 
-This repo optimises for a classroom and makes trade-offs you shouldn't copy into production unchanged:
+This repo optimises for a classroom, and makes trade-offs you shouldn't copy into production unchanged:
 
 | Choice here | Why | In production you'd usually... |
 | --- | --- | --- |
-| Local state | Zero setup; each student runs from their own clone. | Use a remote backend (S3 with state locking). |
-| Single NAT Gateway | Saves ~$32/month per extra AZ. | Run one NAT Gateway per AZ for resilience. |
-| Public API endpoint | Students connect from anywhere; access still requires valid IAM credentials. | Restrict the allowed CIDRs or use a private endpoint. |
-| `-auto-approve` in the scripts | One command, no prompts. | Review `terraform plan` before every apply. |
-| Cluster creator is cluster admin | `kubectl` works immediately. | Grant access explicitly through EKS access entries. |
+| Local state, one workspace per student | Zero setup; each student runs from their own clone. | Use a remote backend (S3 with state locking) so state is shared and backed up. |
+| Single NAT Gateway | Saves ~$32/month per extra AZ. | Run one NAT Gateway per AZ so losing an AZ doesn't cut off egress. |
+| Public API endpoint open to `0.0.0.0/0` | Students connect from anywhere; access still requires valid IAM credentials. | Restrict `endpoint_public_access_cidrs` or use a private endpoint. |
+| `-auto-approve` in the scripts | One command, no prompts. | Review `terraform plan` before every apply, ideally in CI. |
+| The cluster creator is cluster admin | `kubectl` works immediately. | Grant access explicitly through EKS access entries. |
 
-Done the production way already: worker nodes in private subnets, a dedicated IAM role for the EBS CSI driver instead of node-wide permissions, and pinned module versions.
+Things already done the way you'd do them in production: nodes in private subnets, IAM for the EBS CSI driver through EKS Pod Identity (no node-wide permissions), EKS-managed add-ons, pinned module versions and a committed provider lock file, input validation, and default tags on every resource.
 
 ## Troubleshooting
 
+**`down.sh` says there's no state for my name.**
+You need the same name and the same clone you used for `up.sh`. Check `terraform workspace list`.
+
 **`terraform destroy` hangs on the VPC or subnets.**
-Something outside Terraform still uses the network, usually a load balancer created by Kubernetes. Find it in the EC2 console under *Load Balancers*, delete it, and run `./down.sh <name>` again.
+Something outside Terraform still uses the network, usually a load balancer created by Kubernetes. Look for it in the EC2 console under *Load Balancers* (tagged with `kubernetes.io/cluster/eks-<name>`), delete it, and run `./down.sh <name>` again.
 
 **`kubectl` says `You must be logged in to the server (Unauthorized)`.**
-Only the IAM identity that created the cluster is admin. Make sure `aws sts get-caller-identity` shows the identity you used for `up.sh`.
-
-**EBS CSI add-on stuck in `CREATE_FAILED`.**
-Run `./fix-ebs-csi.sh <name>`.
+Only the IAM identity that created the cluster is admin. Make sure `aws sts get-caller-identity` shows the same identity you used for `up.sh`.
 
 **Make sure nothing is left behind.**
 
 ```bash
 aws eks list-clusters --region us-east-1
 aws ec2 describe-volumes --filters Name=status,Values=available --query 'Volumes[].VolumeId'
+```
+
+## Contributing
+
+CI runs `terraform fmt`, `terraform validate`, [TFLint](https://github.com/terraform-linters/tflint) and [ShellCheck](https://www.shellcheck.net/) on every push and pull request. Run the same checks locally before opening a PR:
+
+```bash
+terraform fmt -recursive
+terraform init -backend=false && terraform validate
+tflint --init && tflint
+shellcheck -x up.sh down.sh scripts/common.sh
 ```
