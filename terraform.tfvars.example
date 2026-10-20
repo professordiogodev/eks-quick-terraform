@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars to use plain `terraform` commands instead of the scripts.
+# terraform.tfvars is git-ignored.
+
+student_name = "richard"
+region       = "us-east-1"
+
+# kubernetes_version = "1.36"
+# instance_types     = ["t3.medium"]
+# capacity_type      = "SPOT"
+# desired_nodes      = 2
+# min_nodes          = 1
+# max_nodes          = 3
+
+# Lock the API endpoint down to your own IP (find it with `curl -s https://checkip.amazonaws.com`):
+# endpoint_public_access_cidrs = ["203.0.113.7/32"]
