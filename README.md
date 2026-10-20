@@ -76,7 +76,7 @@ To use a region other than `us-east-1`, export it first: `export AWS_REGION=eu-w
 - load balancers from `type: LoadBalancer` Services and Ingresses, which would otherwise block the VPC from being deleted
 - EBS volumes from PersistentVolumeClaims, which would otherwise keep costing money
 
-Then it runs `terraform destroy`, removes your workspace and deletes the `kubectl` context.
+Then it destroys the cluster and removes the VPC endpoint and security group that [GuardDuty Runtime Monitoring](https://docs.aws.amazon.com/guardduty/latest/ug/runtime-monitoring.html) adds to every VPC with an EKS cluster (they'd otherwise make the VPC deletion fail with `DependencyViolation`). Finally it destroys the network, removes your workspace and deletes the `kubectl` context.
 
 ## Using Terraform directly
 
@@ -137,7 +137,12 @@ Things already done the way you'd do them in production: nodes in private subnet
 You need the same name and the same clone you used for `up.sh`. Check `terraform workspace list`.
 
 **`terraform destroy` hangs on the VPC or subnets.**
-Something outside Terraform still uses the network, usually a load balancer created by Kubernetes. Look for it in the EC2 console under *Load Balancers* (tagged with `kubernetes.io/cluster/eks-<name>`), delete it, and run `./down.sh <name>` again.
+Something outside Terraform still uses the network. `down.sh` already removes the usual suspects; if one survives, delete it in the EC2 console and run `./down.sh <name>` again:
+
+- a load balancer created by Kubernetes (*Load Balancers*, tagged `kubernetes.io/cluster/eks-<name>`)
+- the GuardDuty endpoint (*VPC → Endpoints*, service `com.amazonaws.<region>.guardduty-data`) and its `GuardDutyManagedSecurityGroup-<vpc-id>` security group
+
+For a lab account you can stop GuardDuty creating these at all: in *GuardDuty → Runtime Monitoring*, turn off **automated agent configuration** for EKS and EC2. GuardDuty itself stays on.
 
 **`kubectl` says `You must be logged in to the server (Unauthorized)`.**
 Only the IAM identity that created the cluster is admin. Make sure `aws sts get-caller-identity` shows the same identity you used for `up.sh`.
