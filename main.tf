@@ -100,5 +100,9 @@ module "ebs_csi_pod_identity" {
   name            = "ebs-csi-${var.student_name}"
   use_name_prefix = false
 
+  # The default policy name ("AmazonEKS_EBS_CSI") is account-wide, so it collides
+  # when several students share an account; make it unique per student.
+  policy_name_prefix = "AmazonEKS_${var.student_name}_"
+
   attach_aws_ebs_csi_policy = true
 }
